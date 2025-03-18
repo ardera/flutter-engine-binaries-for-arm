@@ -164,6 +164,9 @@ typedef enum {
   kFlutterSemanticsActionSetText = 1 << 21,
   /// Request that the respective focusable widget gain input focus.
   kFlutterSemanticsActionFocus = 1 << 22,
+  /// Request that scrolls the current scrollable container to a given scroll
+  /// offset.
+  kFlutterSemanticsActionScrollToOffset = 1 << 23,
 } FlutterSemanticsAction;
 
 /// The set of properties that may be associated with a semantics node.
@@ -243,6 +246,16 @@ typedef enum {
   kFlutterSemanticsFlagHasExpandedState = 1 << 26,
   /// Whether a semantic node that hasExpandedState is currently expanded.
   kFlutterSemanticsFlagIsExpanded = 1 << 27,
+  /// The semantics node has the quality of either being "selected" or
+  /// "not selected".
+  kFlutterSemanticsFlagHasSelectedState = 1 << 28,
+  /// Whether a semantics node has the quality of being required.
+  kFlutterSemanticsFlagHasRequiredState = 1 << 29,
+  /// Whether user input is required on the semantics node before a form can be
+  /// submitted.
+  ///
+  /// Only applicable when kFlutterSemanticsFlagHasRequiredState flag is on.
+  kFlutterSemanticsFlagIsRequired = 1 << 30,
 } FlutterSemanticsFlag;
 
 typedef enum {
@@ -321,9 +334,10 @@ typedef enum {
 ///     occupying the lowest memory address.
 ///
 ///   - all other formats are called packed formats, and the component order
-///     as specified in the format name refers to the order in the native type.
-///     for example, for kFlutterSoftwarePixelFormatRGB565, the R component
-///     uses the 5 least significant bits of the uint16_t pixel value.
+///     as specified in the format name refers to the order from most
+///     significant to least significant bits in the native type. for example,
+///     for kFlutterSoftwarePixelFormatRGB565, R occupies the 5 most significant
+///     bits, G the middle 6 bits, and B the 5 least significant bits.
 ///
 /// Each pixel format in this list is documented with an example on how to get
 /// the color components from the pixel.
@@ -336,33 +350,61 @@ typedef enum {
 ///   can get the p for a RGBA8888 formatted buffer like this:
 ///   const uint8_t *p = ((const uint8_t*) allocation) + row_bytes*y + x*4;
 typedef enum {
-  /// pixel with 8 bit grayscale value.
+  /// Pixel with 8 bit grayscale value.
   /// The grayscale value is the luma value calculated from r, g, b
   /// according to BT.709. (gray = r*0.2126 + g*0.7152 + b*0.0722)
   kFlutterSoftwarePixelFormatGray8,
 
-  /// pixel with 5 bits red, 6 bits green, 5 bits blue, in 16-bit word.
-  ///   r = p & 0x3F; g = (p>>5) & 0x3F; b = p>>11;
+  /// Pixel with 5 bits red, 6 bits green, 5 bits blue, in 16-bit word.
+  ///   r = (p >> 11) & 0x1F;
+  ///   g = (p >> 5) & 0x3F;
+  ///   b = p & 0x1F;
+  ///
+  /// On most (== little-endian) systems, this is equivalent to wayland format
+  /// RGB565 (WL_DRM_FORMAT_RGB565, WL_SHM_FORMAT_RGB565).
   kFlutterSoftwarePixelFormatRGB565,
 
-  /// pixel with 4 bits for alpha, red, green, blue; in 16-bit word.
-  ///   r = p & 0xF;  g = (p>>4) & 0xF;  b = (p>>8) & 0xF;   a = p>>12;
+  /// Pixel with 4 bits each for alpha, red, green, blue; in 16-bit word.
+  ///   r = (p >> 8) & 0xF;
+  ///   g = (p >> 4) & 0xF;
+  ///   b = p & 0xF;
+  ///   a = (p >> 12) & 0xF;
+  ///
+  /// On most (== little-endian) systems, this is equivalent to wayland format
+  /// RGBA4444 (WL_DRM_FORMAT_RGBA4444, WL_SHM_FORMAT_RGBA4444).
   kFlutterSoftwarePixelFormatRGBA4444,
 
-  /// pixel with 8 bits for red, green, blue, alpha.
-  ///   r = p[0]; g = p[1]; b = p[2]; a = p[3];
+  /// Pixel with 8 bits each for red, green, blue, alpha.
+  ///   r = p[0];
+  ///   g = p[1];
+  ///   b = p[2];
+  ///   a = p[3];
+  ///
+  /// This is equivalent to wayland format ABGR8888 (WL_DRM_FORMAT_ABGR8888,
+  /// WL_SHM_FORMAT_ABGR8888).
   kFlutterSoftwarePixelFormatRGBA8888,
 
-  /// pixel with 8 bits for red, green and blue and 8 unused bits.
-  ///   r = p[0]; g = p[1]; b = p[2];
+  /// Pixel with 8 bits each for red, green and blue and 8 unused bits.
+  ///   r = p[0];
+  ///   g = p[1];
+  ///   b = p[2];
+  ///
+  /// This is equivalent to wayland format XBGR8888 (WL_DRM_FORMAT_XBGR8888,
+  /// WL_SHM_FORMAT_XBGR8888).
   kFlutterSoftwarePixelFormatRGBX8888,
 
-  /// pixel with 8 bits for blue, green, red and alpha.
-  ///   r = p[2]; g = p[1]; b = p[0]; a = p[3];
+  /// Pixel with 8 bits each for blue, green, red and alpha.
+  ///   r = p[2];
+  ///   g = p[1];
+  ///   b = p[0];
+  ///   a = p[3];
+  ///
+  /// This is equivalent to wayland format ARGB8888 (WL_DRM_FORMAT_ARGB8888,
+  /// WL_SHM_FORMAT_ARGB8888).
   kFlutterSoftwarePixelFormatBGRA8888,
 
-  /// either kFlutterSoftwarePixelFormatBGRA8888 or
-  /// kFlutterSoftwarePixelFormatRGBA8888 depending on CPU endianess and OS
+  /// Either kFlutterSoftwarePixelFormatBGRA8888 or
+  /// kFlutterSoftwarePixelFormatRGBA8888 depending on CPU endianess and OS.
   kFlutterSoftwarePixelFormatNative32,
 } FlutterSoftwarePixelFormat;
 
@@ -1025,6 +1067,74 @@ typedef struct {
   FlutterRemoveViewCallback remove_view_callback;
 } FlutterRemoveViewInfo;
 
+/// Represents the direction in which the focus transitioned across
+/// [FlutterView]s.
+typedef enum {
+  /// Indicates the focus transition did not have a direction.
+  ///
+  /// This is typically associated with focus being programmatically requested
+  /// or when focus is lost.
+  kUndefined,
+
+  /// Indicates the focus transition was performed in a forward direction.
+  ///
+  /// This is typically result of the user pressing tab.
+  kForward,
+
+  /// Indicates the focus transition was performed in a backward direction.
+  ///
+  /// This is typically result of the user pressing shift + tab.
+  kBackward,
+} FlutterViewFocusDirection;
+
+/// Represents the focus state of a given [FlutterView].
+typedef enum {
+  /// Specifies that a view does not have platform focus.
+  kUnfocused,
+
+  /// Specifies that a view has platform focus.
+  kFocused,
+} FlutterViewFocusState;
+
+/// A view focus event is sent to the engine by the embedder when a native view
+/// focus state has changed.
+///
+/// Passed through FlutterEngineSendViewFocusEvent.
+typedef struct {
+  /// The size of this struct.
+  /// Must be sizeof(FlutterViewFocusEvent).
+  size_t struct_size;
+
+  /// The identifier of the view that received the focus event.
+  FlutterViewId view_id;
+
+  /// The focus state of the view.
+  FlutterViewFocusState state;
+
+  /// The direction in which the focus transitioned across [FlutterView]s.
+  FlutterViewFocusDirection direction;
+} FlutterViewFocusEvent;
+
+/// A FlutterViewFocusChangeRequest is sent by the engine to the embedder when
+/// when a FlutterView focus state has changed and native view focus
+/// needs to be updated.
+///
+/// Received in FlutterProjectArgs.view_focus_change_request_callback.
+typedef struct {
+  /// The size of this struct.
+  /// Must be sizeof(FlutterViewFocusChangeRequest).
+  size_t struct_size;
+
+  /// The identifier of the view that received the focus event.
+  FlutterViewId view_id;
+
+  /// The focus state of the view.
+  FlutterViewFocusState state;
+
+  /// The direction in which the focus transitioned across [FlutterView]s.
+  FlutterViewFocusDirection direction;
+} FlutterViewFocusChangeRequest;
+
 /// The phase of the pointer event.
 typedef enum {
   kCancel,
@@ -1609,6 +1719,10 @@ typedef void (*FlutterChannelUpdateCallback)(
     const FlutterChannelUpdate* /* channel update */,
     void* /* user data */);
 
+typedef void (*FlutterViewFocusChangeRequestCallback)(
+    const FlutterViewFocusChangeRequest* /* request */,
+    void* /* user data */);
+
 typedef struct _FlutterTaskRunner* FlutterTaskRunner;
 
 typedef struct {
@@ -1648,6 +1762,8 @@ typedef struct {
   /// A unique identifier for the task runner. If multiple task runners service
   /// tasks on the same thread, their identifiers must match.
   size_t identifier;
+  /// The callback invoked when the task runner is destroyed.
+  VoidCallback destruction_callback;
 } FlutterTaskRunnerDescription;
 
 typedef struct {
@@ -1666,6 +1782,10 @@ typedef struct {
   /// Specify a callback that is used to set the thread priority for embedder
   /// task runners.
   void (*thread_priority_setter)(FlutterThreadPriority);
+  /// Specify the task runner for the thread on which the UI tasks will be run.
+  /// This may be same as platform_task_runner, in which case the Flutter engine
+  /// will run the UI isolate on platform thread.
+  const FlutterTaskRunnerDescription* ui_task_runner;
 } FlutterCustomTaskRunners;
 
 typedef struct {
@@ -1719,7 +1839,8 @@ typedef struct {
   /// store.
   VoidCallback destruction_callback;
   /// The pixel format that the engine should use to render into the allocation.
-  /// In most cases, kR
+  ///
+  /// On Linux, kFlutterSoftwarePixelFormatBGRA8888 is most commonly used.
   FlutterSoftwarePixelFormat pixel_format;
 } FlutterSoftwareBackingStore2;
 
@@ -1989,6 +2110,14 @@ typedef struct {
   /// The callback should return true if the operation was successful.
   FlutterLayersPresentCallback present_layers_callback;
   /// Avoid caching backing stores provided by this compositor.
+  ///
+  /// The engine has an internal backing store cache. Instead of
+  /// creating & destroying backing stores for every frame, created
+  /// backing stores are automatically reused for subsequent frames.
+  ///
+  /// If you wish to change this behavior and destroy backing stores after
+  /// they've been used once, and create new backing stores for every frame,
+  /// you can set this bool to true.
   bool avoid_backing_store_cache;
   /// Callback invoked by the engine to composite the contents of each layer
   /// onto the specified view.
@@ -2503,6 +2632,17 @@ typedef struct {
   /// being registered on the framework side. The callback is invoked from
   /// a task posted to the platform thread.
   FlutterChannelUpdateCallback channel_update_callback;
+
+  /// The callback invoked by the engine when FlutterView focus state has
+  /// changed. The embedder can use this callback to request focus change for
+  /// the native view. The callback is invoked from a task posted to the
+  /// platform thread.
+  FlutterViewFocusChangeRequestCallback view_focus_change_request_callback;
+
+  /// Opaque identifier provided by the engine. Accessible in Dart code through
+  /// `PlatformDispatcher.instance.engineId`. Can be used in native code to
+  /// retrieve the engine instance that is running the Dart code.
+  int64_t engine_id;
 } FlutterProjectArgs;
 
 #ifndef FLUTTER_ENGINE_NO_PROTOTYPES
@@ -2552,8 +2692,8 @@ FlutterEngineResult FlutterEngineCollectAOTData(FlutterEngineAOTData data);
 ///             engine may need the embedder to post tasks back to it before
 ///             `FlutterEngineRun` has returned. Embedders can only post tasks
 ///             to the engine if they have a handle to the engine. In such
-///             cases, embedders are advised to get the engine handle via the
-///             `FlutterInitializeCall`. Then they can call
+///             cases, embedders are advised to get the engine handle by calling
+///             `FlutterEngineInitialize`. Then they can call
 ///             `FlutterEngineRunInitialized` knowing that they will be able to
 ///             service custom tasks on other threads with the engine handle.
 ///
@@ -2706,6 +2846,16 @@ FLUTTER_EXPORT
 FlutterEngineResult FlutterEngineRemoveView(FLUTTER_API_SYMBOL(FlutterEngine)
                                                 engine,
                                             const FlutterRemoveViewInfo* info);
+
+//------------------------------------------------------------------------------
+/// @brief      Notifies the engine that platform view focus state has changed.
+///
+/// @param[in]  engine  A running engine instance
+/// @param[in]  event   The focus event data describing the change.
+FLUTTER_EXPORT
+FlutterEngineResult FlutterEngineSendViewFocusEvent(
+    FLUTTER_API_SYMBOL(FlutterEngine) engine,
+    const FlutterViewFocusEvent* event);
 
 FLUTTER_EXPORT
 FlutterEngineResult FlutterEngineSendWindowMetricsEvent(
@@ -3383,6 +3533,9 @@ typedef FlutterEngineResult (*FlutterEngineAddViewFnPtr)(
 typedef FlutterEngineResult (*FlutterEngineRemoveViewFnPtr)(
     FLUTTER_API_SYMBOL(FlutterEngine) engine,
     const FlutterRemoveViewInfo* info);
+typedef FlutterEngineResult (*FlutterEngineSendViewFocusEventFnPtr)(
+    FLUTTER_API_SYMBOL(FlutterEngine) engine,
+    const FlutterViewFocusEvent* event);
 
 /// Function-pointer-based versions of the APIs above.
 typedef struct {
@@ -3431,6 +3584,7 @@ typedef struct {
   FlutterEngineSetNextFrameCallbackFnPtr SetNextFrameCallback;
   FlutterEngineAddViewFnPtr AddView;
   FlutterEngineRemoveViewFnPtr RemoveView;
+  FlutterEngineSendViewFocusEventFnPtr SendViewFocusEvent;
 } FlutterEngineProcTable;
 
 //------------------------------------------------------------------------------
